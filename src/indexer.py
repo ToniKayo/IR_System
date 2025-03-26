@@ -5,66 +5,68 @@ import nltk
 from collections import defaultdict
 from nltk.tokenize import word_tokenize
 from nltk.corpus import stopwords
+from nltk.stem import PorterStemmer
 
-# Download NLTK resources
+# Download NLTK data
 nltk.download('punkt')
 nltk.download('stopwords')
 
 class Indexer:
     def __init__(self, dataset_path):
         self.dataset_path = dataset_path
-        self.inverted_index = defaultdict(list)
-        self.documents = {}
+        self.inverted_index = defaultdict(list)  # token -> list of (doc_id, frequency)
+        self.documents = {}                     # doc_id -> list of tokens
+        self.doc_lengths = {}                   # doc_id -> document length
+        self.stemmer = PorterStemmer()
 
     def preprocess_text(self, text):
-        """Lowercase, remove special characters, tokenize, and remove stopwords."""
-        if not text:  # Handle empty text safely
+        if not text:
             return []
-        
+
         text = text.lower()
-        text = re.sub(r'\W+', ' ', text)  # Remove non-word characters
+        text = re.sub(r'\W+', ' ', text)
         tokens = word_tokenize(text)
-        tokens = [word for word in tokens if word not in stopwords.words('english')]
+        stop_words = set(stopwords.words('english'))
+        tokens = [self.stemmer.stem(word) for word in tokens if word not in stop_words]
         return tokens
 
     def parse_documents(self):
-        """Parses the Cranfield dataset, processes text, and builds an inverted index."""
-        with open(os.path.join(self.dataset_path, "cran.all.1400.xml"), 'r', encoding='utf-8') as file:
+        file_path = os.path.join(self.dataset_path, "cran.all.1400.xml")
+        with open(file_path, 'r', encoding='utf-8') as file:
             data = xmltodict.parse(file.read())
 
-        # Ensure correct key based on XML structure
         if 'root' in data and 'doc' in data['root']:
             documents = data['root']['doc']
         else:
             raise KeyError("Unexpected XML structure. Could not find 'root' or 'doc' keys.")
 
-        # Process each document
         for doc in documents:
-            doc_id = int(doc['docno'])  # Ensure doc ID is an integer
+            doc_id = int(doc['docno'])
+            text = doc.get('text', '') or ''
+            text = text.strip()
 
-            # ✅ Ensure text is never None
-            text = doc.get('text', '')  # Use get() to avoid KeyError
-            if text is None:
-                text = ""  # Assign empty string if missing
-            
-            text = text.strip()  # Remove extra spaces
-
-            # Skip empty documents
             if not text:
-                print(f"⚠️ Skipping empty document: {doc_id}")
+                print(f" Skipping empty document: {doc_id}")
                 continue
 
-            tokens = self.preprocess_text(text)  # Process text safely
+            tokens = self.preprocess_text(text)
             self.documents[doc_id] = tokens
+            self.doc_lengths[doc_id] = len(tokens)
 
-            # Build inverted index
-            for token in set(tokens):
-                self.inverted_index[token].append(doc_id)
+            # Calculate term frequencies
+            freq = defaultdict(int)
+            for token in tokens:
+                freq[token] += 1
+
+            # Update inverted index
+            for token, count in freq.items():
+                self.inverted_index[token].append((doc_id, count))
 
     def get_inverted_index(self):
-        """Returns the inverted index."""
         return self.inverted_index
 
     def get_documents(self):
-        """Returns the parsed and tokenized documents."""
         return self.documents
+
+    def get_doc_lengths(self):
+        return self.doc_lengths
